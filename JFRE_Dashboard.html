@@ -1,0 +1,814 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Customs Campaign Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root {
+    --primary: #1a1f3c;
+    --accent: #4f6ef7;
+    --accent2: #22d3a0;
+    --accent3: #f59e0b;
+    --accent4: #ef4444;
+    --bg: #f0f2f8;
+    --card: #ffffff;
+    --text: #1a1f3c;
+    --muted: #6b7280;
+    --border: #e5e7eb;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+  /* ── TOOLBAR ── */
+  /* Fixed inside the iframe's own scroll so it always stays visible */
+  html, body { height: 100%; }
+  body { display: flex; flex-direction: column; }
+  .toolbar {
+    background: var(--primary); color: white;
+    padding: 14px 28px; display: flex; align-items: center;
+    justify-content: space-between; gap: 12px;
+    position: sticky; top: 0; z-index: 100;
+    flex-shrink: 0;
+    box-shadow: 0 2px 8px rgba(0,0,0,.25);
+  }
+  /* Make the content area scrollable so the toolbar stays fixed */
+  #uploadScreen, #dashboard {
+    flex: 1;
+    overflow-y: auto;
+  }
+  .toolbar-left { display: flex; align-items: center; gap: 14px; }
+  .toolbar h1 { font-size: 1.05rem; font-weight: 700; }
+  .btn-group { display: flex; gap: 8px; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 8px 16px; border-radius: 7px; font-size: .83rem;
+    font-weight: 600; cursor: pointer; border: none; transition: .15s;
+  }
+  .btn-outline { background: transparent; color: white; border: 1.5px solid rgba(255,255,255,.4); }
+  .btn-outline:hover { background: rgba(255,255,255,.12); }
+  .btn-primary { background: var(--accent); color: white; }
+  .btn-primary:hover { background: #3a5ce0; }
+  .btn-upload { background: var(--accent2); color: #0d2a20; }
+  .btn-upload:hover { background: #1ab88c; }
+  #fileInput { display: none; }
+  .file-chip {
+    background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.25);
+    border-radius: 20px; padding: 4px 12px; font-size: .75rem; color: rgba(255,255,255,.85);
+  }
+
+  /* ── UPLOAD SCREEN ── */
+  #uploadScreen {
+    display: flex; align-items: center; justify-content: center;
+    min-height: 100%; padding: 40px;
+  }
+  .upload-box {
+    background: white; border-radius: 16px; padding: 52px 60px;
+    text-align: center; max-width: 520px; width: 100%;
+    border: 2.5px dashed var(--border);
+    box-shadow: 0 4px 24px rgba(0,0,0,.07);
+    transition: border-color .2s, box-shadow .2s;
+  }
+  .upload-box.drag-over { border-color: var(--accent); box-shadow: 0 4px 30px rgba(79,110,247,.15); }
+  .upload-icon { font-size: 3rem; margin-bottom: 16px; }
+  .upload-box h2 { font-size: 1.3rem; font-weight: 800; margin-bottom: 8px; }
+  .upload-box p { color: var(--muted); font-size: .9rem; margin-bottom: 24px; line-height: 1.6; }
+  .upload-btn-big {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: var(--accent); color: white;
+    padding: 12px 28px; border-radius: 9px; font-size: .95rem;
+    font-weight: 700; cursor: pointer; border: none; transition: .15s;
+  }
+  .upload-btn-big:hover { background: #3a5ce0; }
+  .upload-hint { margin-top: 14px; font-size: .78rem; color: #9ca3af; }
+
+  /* ── REPORT HEADER ── */
+  #dashboard { display: none; }
+  .report-header {
+    background: linear-gradient(135deg, var(--primary) 0%, #2d3a7a 100%);
+    color: white; padding: 28px 28px 24px;
+    display: grid; grid-template-columns: 1fr auto; gap: 20px; align-items: center;
+  }
+  [contenteditable] { outline: none; border-radius: 4px; transition: background .15s; }
+  [contenteditable]:hover { background: rgba(255,255,255,.08); }
+  [contenteditable]:focus { background: rgba(255,255,255,.15); }
+  .report-title { font-size: 1.75rem; font-weight: 800; letter-spacing: -.01em; line-height: 1.2; display: block; min-width: 200px; }
+  .report-meta { font-size: .82rem; opacity: .7; margin-top: 6px; display: block; }
+  .badge-group { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+  .badge { background: rgba(255,255,255,.15); border-radius: 20px; padding: 5px 14px; font-size: .76rem; font-weight: 600; border: 1px solid rgba(255,255,255,.2); }
+
+  /* ── LAYOUT ── */
+  .container { max-width: 1280px; margin: 0 auto; padding: 24px 28px; }
+
+  /* ── KPI CARDS ── */
+  .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 14px; margin-bottom: 24px; }
+  .kpi {
+    background: var(--card); border-radius: 12px; padding: 18px 20px;
+    border-left: 4px solid var(--accent);
+    box-shadow: 0 1px 4px rgba(0,0,0,.06);
+    transition: transform .15s, box-shadow .15s;
+  }
+  .kpi:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,.1); }
+  .kpi:nth-child(2) { border-color: var(--accent2); }
+  .kpi:nth-child(3) { border-color: var(--accent3); }
+  .kpi:nth-child(4) { border-color: var(--accent4); }
+  .kpi:nth-child(5) { border-color: #a78bfa; }
+  .kpi:nth-child(6) { border-color: #fb923c; }
+  .kpi-label { font-size: .7rem; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin-bottom: 6px; }
+  .kpi-value { font-size: 1.65rem; font-weight: 800; line-height: 1; }
+  .kpi-sub { font-size: .73rem; color: var(--muted); margin-top: 4px; }
+
+  /* ── SECTION TITLES ── */
+  .section-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+  .section-title { font-size: .85rem; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+
+  /* ── CHARTS ── */
+  .charts-row { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-bottom: 24px; }
+  .chart-card { background: var(--card); border-radius: 12px; padding: 20px; box-shadow: 0 1px 4px rgba(0,0,0,.06); }
+  .chart-title { font-size: .85rem; font-weight: 700; margin-bottom: 14px; }
+  .chart-wrap { position: relative; height: 230px; }
+
+  /* ── TABLE ── */
+  .table-card { background: var(--card); border-radius: 12px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,.06); margin-bottom: 24px; }
+  .table-toolbar { padding: 14px 18px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border); gap: 10px; flex-wrap: wrap; }
+  .search-box { padding: 7px 12px; border: 1.5px solid var(--border); border-radius: 7px; font-size: .85rem; width: 200px; outline: none; transition: border-color .15s; }
+  .search-box:focus { border-color: var(--accent); }
+  .sort-select { padding: 7px 10px; border: 1.5px solid var(--border); border-radius: 7px; font-size: .85rem; outline: none; background: white; cursor: pointer; }
+  .tbl-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: .82rem; }
+  th { background: #f8f9fb; padding: 10px 14px; text-align: left; font-size: .7rem; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); border-bottom: 1px solid var(--border); white-space: nowrap; cursor: pointer; user-select: none; }
+  th:hover { background: #eef0f7; }
+  td { padding: 10px 14px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: #f8f9ff; }
+  .center { text-align: center; }
+  .pill { display: inline-block; padding: 2px 9px; border-radius: 20px; font-size: .75rem; font-weight: 700; }
+  .pill-green { background: #dcfce7; color: #15803d; }
+  .pill-yellow { background: #fef9c3; color: #92400e; }
+  .pill-red { background: #fee2e2; color: #b91c1c; }
+  .bar-cell { display: flex; align-items: center; gap: 8px; min-width: 120px; }
+  .bar-bg { flex: 1; height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
+  .bar-fill { height: 100%; border-radius: 3px; }
+  .bar-label { font-size: .78rem; font-weight: 600; width: 42px; text-align: right; }
+
+  /* ── NOTES ── */
+  .notes-card { background: var(--card); border-radius: 12px; padding: 20px; box-shadow: 0 1px 4px rgba(0,0,0,.06); margin-bottom: 24px; }
+  .notes-area { width: 100%; min-height: 80px; border: 1.5px solid var(--border); border-radius: 8px; padding: 12px; font-size: .88rem; font-family: inherit; resize: vertical; outline: none; color: var(--text); transition: border-color .15s; }
+  .notes-area:focus { border-color: var(--accent); }
+
+  .btn:disabled { opacity: .6; cursor: not-allowed; }
+</style>
+</head>
+<body>
+
+<!-- TOOLBAR -->
+<div class="toolbar no-print">
+  <div class="toolbar-left">
+    <div>
+      <div style="font-size:1.05rem;font-weight:700;">📊 Campaign Dashboard</div>
+      <div style="font-size:.72rem;opacity:.6;margin-top:1px;">Upload any monthly CSV · Click text to edit · Save as PDF · Scroll inside this panel</div>
+    </div>
+    <span class="file-chip" id="fileChip" style="display:none"></span>
+  </div>
+  <div class="btn-group">
+    <label class="btn btn-upload" for="fileInput" id="loadBtn">⬆ Load File</label>
+    <input type="file" id="fileInput" accept=".csv,.xlsx,.xls">
+<button class="btn btn-outline" onclick="savePDF()" id="printBtn" style="display:none">💾 Save PDF</button>
+    <button class="btn btn-outline" onclick="unlockDashboard()" id="unlockBtn" style="display:none;border-color:rgba(239,68,68,.6);color:#fca5a5;">🔓 Load New File</button>
+  </div>
+</div>
+
+<!-- UPLOAD SCREEN -->
+<div id="uploadScreen">
+  <div class="upload-box" id="dropZone">
+    <div class="upload-icon">📂</div>
+    <h2>Load your campaign CSV</h2>
+    <p>Drop your monthly Customs CSV file here and the dashboard will build itself automatically. Works every month — just swap the file.</p>
+    <label class="upload-btn-big" for="fileInput">
+      Choose CSV file
+    </label>
+    <div class="upload-hint">Accepts .csv, .xlsx, or .xls · Expected columns: SiteId · CareerCenterName · Total_Sends · Total_Delivered · Delivery_Rate · Unique_Opens · Open_Rate · Unique_Clicks · CTO_Rate · Unique_Unsubs · Total_Bounces</div>
+  </div>
+</div>
+
+<!-- DASHBOARD (hidden until CSV loaded) -->
+<div id="dashboard">
+
+  <div class="report-header">
+    <div>
+      <span class="report-title" contenteditable="true" id="reportTitle">Campaign Report</span>
+      <span class="report-meta" contenteditable="true" id="reportMeta">Loading…</span>
+    </div>
+    <div class="badge-group" id="headerBadges"></div>
+  </div>
+
+  <div class="container">
+    <div class="kpi-grid" id="kpiGrid"></div>
+
+    <div class="section-row">
+      <div class="section-title">Campaign Engagement Overview</div>
+    </div>
+    <div class="charts-row">
+      <div class="chart-card">
+        <div class="chart-title">Top 10 by Open Rate</div>
+        <div class="chart-wrap"><canvas id="chartOpenRate"></canvas></div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title">Top 10 by Click-to-Open Rate</div>
+        <div class="chart-wrap"><canvas id="chartCTO"></canvas></div>
+      </div>
+    </div>
+
+    <div class="section-row no-print">
+      <div class="section-title">All Career Centers</div>
+    </div>
+    <div class="table-card no-print">
+      <div class="table-toolbar no-print">
+        <input class="search-box" id="searchBox" placeholder="🔍 Site ID(s), e.g. 243, 756…" oninput="filterTable()" style="width:240px;">
+        <select class="sort-select" onchange="sortTable(this.value)">
+          <option value="">Sort by…</option>
+          <option value="id_asc">Site ID ↑</option>
+          <option value="name">Name A–Z</option>
+          <option value="sends_desc">Sends ↓</option>
+          <option value="open_desc">Open Rate ↓</option>
+          <option value="cto_desc">CTO Rate ↓</option>
+          <option value="delivery_desc">Delivery Rate ↓</option>
+        </select>
+      </div>
+      <div class="tbl-wrap">
+        <table id="dataTable">
+          <thead>
+            <tr>
+              <th class="center">Site ID</th>
+              <th>Career Center</th>
+              <th class="center">Sends</th>
+              <th class="center">Delivery Rate</th>
+              <th>Open Rate</th>
+              <th>CTO Rate</th>
+              <th class="center">Unique Clicks</th>
+              <th class="center">Bounces</th>
+            </tr>
+          </thead>
+          <tbody id="tableBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="notes-card">
+      <div class="section-title" style="margin-bottom:10px;">Notes / Comments</div>
+      <textarea class="notes-area" placeholder="Add notes, observations, or recommendations here…"></textarea>
+    </div>
+  </div>
+</div>
+
+<script>
+let raw = [];
+let displayData = [];
+let chartOR = null, chartCTO_inst = null;
+let locked = false;
+
+// ── CSV PARSER ──
+function parseNum(val) {
+  if (!val) return 0;
+  return parseFloat(String(val).replace(/[,%]/g, '').trim()) || 0;
+}
+
+function parseCSV(text) {
+  const lines = text.trim().split(/\r?\n/);
+  // Find header line
+  const headerLine = lines[0];
+  const headers = headerLine.split(',').map(h => h.trim().replace(/^"|"$/g, ''));
+
+  // Map header names flexibly
+  function col(row, ...keys) {
+    for (const k of keys) {
+      const idx = headers.findIndex(h => h.toLowerCase() === k.toLowerCase());
+      if (idx !== -1) return (row[idx] || '').replace(/^"|"$/g, '').trim();
+    }
+    return '';
+  }
+
+  const data = [];
+  for (let i = 1; i < lines.length; i++) {
+    if (!lines[i].trim()) continue;
+
+    // Handle quoted fields with commas inside
+    const row = [];
+    let cur = '', inQ = false;
+    for (const ch of lines[i]) {
+      if (ch === '"') { inQ = !inQ; }
+      else if (ch === ',' && !inQ) { row.push(cur); cur = ''; }
+      else { cur += ch; }
+    }
+    row.push(cur);
+
+    const id = parseInt(col(row, 'siteid', 'site_id', 'id')) || 0;
+    const name = col(row, 'careercenter', 'careercentername', 'career_center', 'career_center_name', 'name');
+    const sendDate = col(row, 'send_date', 'senddate', 'date');
+    const sends = parseNum(col(row, 'total_sends', 'totalsends', 'sends'));
+    const delivered = parseNum(col(row, 'total_delivered', 'totaldelivered', 'delivered'));
+    const deliveryRate = parseNum(col(row, 'delivery_rate', 'deliveryrate'));
+    const opens = parseNum(col(row, 'unique_opens', 'uniqueopens', 'opens'));
+    const openRate = parseNum(col(row, 'open_rate', 'openrate'));
+    const clicks = parseNum(col(row, 'unique_clicks', 'uniqueclicks', 'clicks'));
+    const ctoRate = parseNum(col(row, 'cto_rate', 'ctorate', 'cto'));
+    const unsubs = parseNum(col(row, 'unique_unsubs', 'uniqueunsubs', 'unsubs'));
+    const bounces = parseNum(col(row, 'total_bounces', 'totalbounces', 'bounces'));
+
+    if (!id && !name) continue;
+    data.push({ id, name, sendDate, sends, delivered, deliveryRate, opens, openRate, clicks, ctoRate, unsubs, bounces });
+  }
+  return data;
+}
+
+// ── RENDER HELPERS ──
+const sum = key => displayData.reduce((a, r) => a + r[key], 0);
+const avg = key => displayData.length ? displayData.reduce((a, r) => a + r[key], 0) / displayData.length : 0;
+const pct = n => n.toFixed(2) + '%';
+
+function openPill(r) {
+  if (r.openRate >= 18) return `<span class="pill pill-green">${pct(r.openRate)}</span>`;
+  if (r.openRate >= 12) return `<span class="pill pill-yellow">${pct(r.openRate)}</span>`;
+  return `<span class="pill pill-red">${pct(r.openRate)}</span>`;
+}
+function delivPill(r) {
+  if (r.deliveryRate >= 98) return `<span class="pill pill-green">${pct(r.deliveryRate)}</span>`;
+  if (r.deliveryRate >= 90) return `<span class="pill pill-yellow">${pct(r.deliveryRate)}</span>`;
+  return `<span class="pill pill-red">${pct(r.deliveryRate)}</span>`;
+}
+function barCell(val, max, color) {
+  const w = Math.min(100, max ? (val/max)*100 : 0);
+  return `<div class="bar-cell">
+    <div class="bar-bg"><div class="bar-fill" style="width:${w}%;background:${color}"></div></div>
+    <div class="bar-label">${pct(val)}</div>
+  </div>`;
+}
+
+// ── BUILD DASHBOARD ──
+function buildDashboard(filename) {
+  // Header
+  const sendDate = raw[0]?.sendDate || '';
+  const dateStr = sendDate ? ` · Send Date: ${sendDate.split('T')[0]}` : '';
+  document.getElementById('reportTitle').textContent = `${filename.replace(/\.csv$/i,'').replace(/_/g,' ')} Report`;
+  document.getElementById('reportMeta').textContent = `Prepared by Momentive Software${dateStr}`;
+
+  buildKPIs();
+  buildCharts();
+  renderTable(raw);
+
+  updateBadges();
+}
+
+function buildKPIs() {
+  const totalSends = sum('sends');
+  const bestOpenCenter = [...displayData].sort((a,b) => b.openRate - a.openRate)[0];
+  const kpis = [
+    {label:'Total Sends', value: totalSends.toLocaleString(), sub:`${raw.length} career centers`},
+    {label:'Total Delivered', value: sum('delivered').toLocaleString(), sub:`Avg delivery ${pct(avg('deliveryRate'))}`},
+    {label:'Total Opens', value: sum('opens').toLocaleString(), sub:`Avg open rate ${pct(avg('openRate'))}`},
+    {label:'Total Clicks', value: sum('clicks').toLocaleString(), sub:`Avg CTO ${pct(avg('ctoRate'))}`},
+    {label:'Total Bounces', value: sum('bounces').toLocaleString(), sub:`${pct((sum('bounces')/totalSends)*100)} of sends`},
+    {label:'Best Open Rate', value: pct(bestOpenCenter?.openRate || 0), sub: bestOpenCenter?.name || ''},
+  ];
+  document.getElementById('kpiGrid').innerHTML = kpis.map(k => `
+    <div class="kpi">
+      <div class="kpi-label">${k.label}</div>
+      <div class="kpi-value" contenteditable="true">${k.value}</div>
+      <div class="kpi-sub">${k.sub}</div>
+    </div>`).join('');
+}
+
+function buildCharts() {
+  if (chartOR) chartOR.destroy();
+  if (chartCTO_inst) chartCTO_inst.destroy();
+
+  const isFiltered = displayData.length < raw.length && displayData.length > 0;
+
+  if (isFiltered) {
+    buildSiteOverviewCharts();
+  } else {
+    buildTop10Charts();
+  }
+}
+
+function buildTop10Charts() {
+  document.querySelector('.chart-card:nth-child(1) .chart-title').textContent = 'Top 10 by Open Rate';
+  document.querySelector('.chart-card:nth-child(2) .chart-title').textContent = 'Top 10 by Click-to-Open Rate';
+
+  const byOpen = [...displayData].sort((a,b) => b.openRate - a.openRate).slice(0,10);
+  const byCTO  = [...displayData].sort((a,b) => b.ctoRate  - a.ctoRate).slice(0,10);
+
+  const mkCfg = (labels, data, colors, label) => ({
+    type: 'bar',
+    data: { labels, datasets: [{ label, data, backgroundColor: colors, borderRadius: 5, borderSkipped: false }] },
+    options: {
+      indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => ` ${ctx.parsed.x.toFixed(2)}%` } } },
+      scales: {
+        x: { grid: { color: '#f0f0f0' }, ticks: { callback: v => v + '%', font: { size: 10 } } },
+        y: { grid: { display: false }, ticks: { font: { size: 10 } } }
+      }
+    }
+  });
+
+  chartOR = new Chart(document.getElementById('chartOpenRate'), mkCfg(
+    byOpen.map(r => r.name.length > 22 ? r.name.slice(0,22)+'…' : r.name),
+    byOpen.map(r => r.openRate),
+    byOpen.map((_,i) => `hsl(${220+i*8},80%,${55+i*2}%)`),
+    'Open Rate %'
+  ));
+
+  chartCTO_inst = new Chart(document.getElementById('chartCTO'), mkCfg(
+    byCTO.map(r => r.name.length > 22 ? r.name.slice(0,22)+'…' : r.name),
+    byCTO.map(r => r.ctoRate),
+    byCTO.map((_,i) => `hsl(${160-i*5},70%,${45+i*2}%)`),
+    'CTO Rate %'
+  ));
+}
+
+function buildSiteOverviewCharts() {
+  // Use first matched site if multiple; show all if a few
+  const sites = displayData.slice(0, 5); // max 5 for readability
+  const siteName = sites.length === 1
+    ? (sites[0].name.length > 30 ? sites[0].name.slice(0,30)+'…' : sites[0].name)
+    : `${sites.length} Sites`;
+
+  document.querySelector('.chart-card:nth-child(1) .chart-title').textContent = `Rates Overview — ${siteName}`;
+  document.querySelector('.chart-card:nth-child(2) .chart-title').textContent = `Volume Overview — ${siteName}`;
+
+  // Chart 1: Rate metrics
+  const rateLabels = ['Delivery Rate', 'Open Rate', 'CTO Rate'];
+  const rateColors = ['#4f6ef7', '#22d3a0', '#f59e0b'];
+  const rateDatasets = sites.map((r, i) => ({
+    label: r.name.length > 18 ? r.name.slice(0,18)+'…' : r.name,
+    data: [r.deliveryRate, r.openRate, r.ctoRate],
+    backgroundColor: `hsl(${220 + i * 40},75%,58%)`,
+    borderRadius: 5,
+    borderSkipped: false,
+  }));
+
+  chartOR = new Chart(document.getElementById('chartOpenRate'), {
+    type: 'bar',
+    data: { labels: rateLabels, datasets: rateDatasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: sites.length > 1, position: 'bottom', labels: { font: { size: 10 } } },
+        tooltip: { callbacks: { label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y.toFixed(2)}%` } }
+      },
+      scales: {
+        x: { grid: { display: false }, ticks: { font: { size: 11 } } },
+        y: { grid: { color: '#f0f0f0' }, ticks: { callback: v => v + '%', font: { size: 10 } }, beginAtZero: true }
+      }
+    }
+  });
+
+  // Chart 2: Volume metrics
+  const volLabels = ['Sends', 'Delivered', 'Opens', 'Clicks', 'Bounces'];
+  const volDatasets = sites.map((r, i) => ({
+    label: r.name.length > 18 ? r.name.slice(0,18)+'…' : r.name,
+    data: [r.sends, r.delivered, r.opens, r.clicks, r.bounces],
+    backgroundColor: `hsl(${160 - i * 40},65%,48%)`,
+    borderRadius: 5,
+    borderSkipped: false,
+  }));
+
+  chartCTO_inst = new Chart(document.getElementById('chartCTO'), {
+    type: 'bar',
+    data: { labels: volLabels, datasets: volDatasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: sites.length > 1, position: 'bottom', labels: { font: { size: 10 } } },
+        tooltip: { callbacks: { label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y.toLocaleString()}` } }
+      },
+      scales: {
+        x: { grid: { display: false }, ticks: { font: { size: 11 } } },
+        y: { grid: { color: '#f0f0f0' }, ticks: { font: { size: 10 } }, beginAtZero: true }
+      }
+    }
+  });
+}
+
+function renderTable(data) {
+  const maxCTO  = Math.max(...raw.map(r => r.ctoRate), 1);
+  const maxOpen = Math.max(...raw.map(r => r.openRate), 1);
+  document.getElementById('tableBody').innerHTML = data.map(r => `
+    <tr>
+      <td class="center" style="font-weight:600;color:var(--muted);font-size:.78rem;">${r.id}</td>
+      <td>${r.name}</td>
+      <td class="center">${r.sends.toLocaleString()}</td>
+      <td class="center">${delivPill(r)}</td>
+      <td>${barCell(r.openRate, maxOpen, '#4f6ef7')}</td>
+      <td>${barCell(r.ctoRate,  maxCTO,  '#22d3a0')}</td>
+      <td class="center">${r.clicks.toLocaleString()}</td>
+      <td class="center">${r.bounces.toLocaleString()}</td>
+    </tr>`).join('');
+}
+
+function updateBadges() {
+  document.getElementById('headerBadges').innerHTML = [
+    `${displayData.length} Centers`,
+    `${sum('sends').toLocaleString()} Sends`,
+    `Avg Open ${pct(avg('openRate'))}`
+  ].map(b => `<div class="badge">${b}</div>`).join('');
+}
+
+// ── SEARCH / SORT ──
+function filterTable() {
+  const q = document.getElementById('searchBox').value.trim();
+  if (q) {
+    // Support one or multiple IDs separated by commas or spaces
+    const ids = q.split(/[\s,]+/).map(s => parseInt(s)).filter(n => !isNaN(n));
+    displayData = raw.filter(r => ids.includes(r.id));
+  } else {
+    displayData = [...raw];
+  }
+  renderTable(displayData);
+  buildKPIs();
+  buildCharts();
+  updateBadges();
+}
+
+let sortState = {};
+function toggleSort(key) { sortState[key] = !sortState[key]; sortTable(key, sortState[key]); }
+function sortTable(key, desc = true) {
+  const sorters = {
+    id_asc:       (a,b) => desc ? b.id - a.id : a.id - b.id,
+    name:         (a,b) => desc ? b.name.localeCompare(a.name) : a.name.localeCompare(b.name),
+    sends_desc:   (a,b) => desc ? b.sends - a.sends : a.sends - b.sends,
+    open_desc:    (a,b) => desc ? b.openRate - a.openRate : a.openRate - b.openRate,
+    cto_desc:     (a,b) => desc ? b.ctoRate  - a.ctoRate  : a.ctoRate  - b.ctoRate,
+    delivery_desc:(a,b) => desc ? b.deliveryRate - a.deliveryRate : a.deliveryRate - b.deliveryRate,
+  };
+  if (sorters[key]) { displayData = [...displayData].sort(sorters[key]); renderTable(displayData); }
+}
+
+// ── EXPORT HELPERS ──
+function exportRows() {
+  return displayData.map(r => ({
+    'Site ID': r.id,
+    'Career Center': r.name,
+    'Total Sends': r.sends,
+    'Total Delivered': r.delivered,
+    'Delivery Rate (%)': r.deliveryRate,
+    'Unique Opens': r.opens,
+    'Open Rate (%)': r.openRate,
+    'Unique Clicks': r.clicks,
+    'CTO Rate (%)': r.ctoRate,
+    'Unique Unsubs': r.unsubs,
+    'Total Bounces': r.bounces,
+  }));
+}
+
+function getExportFilename(ext) {
+  const title = document.getElementById('reportTitle')?.textContent.trim() || 'Campaign_Report';
+  return title.replace(/[^a-z0-9_\-\s]/gi, '').replace(/\s+/g, '_') + '.' + ext;
+}
+
+
+function exportExcel() {
+  if (typeof XLSX === 'undefined') { alert('Excel export unavailable — the SheetJS library could not load. Try a CSV file or check your internet connection.'); return; }
+  const wb = XLSX.utils.book_new();
+  const bestCenter = [...displayData].sort((a,b) => b.openRate - a.openRate)[0];
+
+  // ── Sheet 1: Dashboard Summary ──
+  const summaryData = [
+    ['DASHBOARD SUMMARY', ''],
+    ['Report', document.getElementById('reportTitle')?.textContent.trim() || ''],
+    ['Generated', new Date().toLocaleDateString()],
+    ['', ''],
+    ['METRIC', 'VALUE'],
+    ['Total Centers', displayData.length],
+    ['Total Sends', sum('sends')],
+    ['Total Delivered', sum('delivered')],
+    ['Total Opens', sum('opens')],
+    ['Total Clicks', sum('clicks')],
+    ['Total Bounces', sum('bounces')],
+    ['Avg Delivery Rate', pct(avg('deliveryRate'))],
+    ['Avg Open Rate', pct(avg('openRate'))],
+    ['Avg CTO Rate', pct(avg('ctoRate'))],
+    ['Best Open Rate Center', bestCenter?.name || ''],
+    ['Best Open Rate', pct(bestCenter?.openRate || 0)],
+  ];
+
+  const wsSummary = XLSX.utils.aoa_to_sheet(summaryData);
+  wsSummary['!cols'] = [{wch: 28}, {wch: 40}];
+  XLSX.utils.book_append_sheet(wb, wsSummary, 'Dashboard Summary');
+
+  // ── Sheet 2: Detail Data ──
+  const rows = exportRows();
+  const wsData = XLSX.utils.json_to_sheet(rows);
+  wsData['!cols'] = [
+    {wch:10},{wch:40},{wch:13},{wch:16},{wch:16},
+    {wch:13},{wch:13},{wch:13},{wch:13},{wch:14},{wch:14}
+  ];
+  XLSX.utils.book_append_sheet(wb, wsData, 'Detail Data');
+
+  XLSX.writeFile(wb, getExportFilename('xlsx'));
+}
+
+// ── SAVE PDF ──
+async function savePDF() {
+  const btn = document.getElementById('printBtn');
+  btn.disabled = true;
+  btn.textContent = '⏳ Generating…';
+
+  // Temporarily remove no-print elements inside the dashboard so they leave no gap
+  const noPrint = [...document.querySelectorAll('#dashboard .no-print')];
+  noPrint.forEach(el => { el.dataset.prevDisplay = el.style.display; el.style.display = 'none'; });
+
+  await new Promise(r => setTimeout(r, 120));
+
+  try {
+    const target = document.getElementById('dashboard');
+    // In iframe layout the dashboard div is scrollable, so we need its full scrollHeight
+    const fullHeight = Math.max(target.scrollHeight, target.offsetHeight);
+    const canvas = await html2canvas(target, {
+      scale: 2,
+      useCORS: true,
+      backgroundColor: '#f0f2f8',
+      logging: false,
+      windowWidth: target.scrollWidth,
+      width: target.scrollWidth,
+      height: fullHeight,
+      scrollY: -target.scrollTop,
+    });
+
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF({ orientation: 'landscape', unit: 'px', format: 'a4' });
+
+    const pageW = pdf.internal.pageSize.getWidth();
+    const pageH = pdf.internal.pageSize.getHeight();
+
+    // Scale canvas width to fit page width
+    const scale = pageW / canvas.width;
+    const scaledPageH = pageH / scale; // canvas px that fit one page
+
+    let yOffset = 0;
+    while (yOffset < canvas.height) {
+      if (yOffset > 0) pdf.addPage();
+
+      // Slice a page-height chunk from the canvas
+      const sliceH = Math.min(scaledPageH, canvas.height - yOffset);
+      const sliceCanvas = document.createElement('canvas');
+      sliceCanvas.width = canvas.width;
+      sliceCanvas.height = sliceH;
+      sliceCanvas.getContext('2d').drawImage(canvas, 0, yOffset, canvas.width, sliceH, 0, 0, canvas.width, sliceH);
+
+      pdf.addImage(sliceCanvas.toDataURL('image/png'), 'PNG', 0, 0, pageW, sliceH * scale);
+      yOffset += sliceH;
+    }
+
+    const filename = (document.getElementById('reportTitle').textContent.trim() || 'Campaign_Report')
+      .replace(/[^a-z0-9_\-\s]/gi, '').replace(/\s+/g, '_') + '.pdf';
+
+    const pdfBlob = pdf.output('blob');
+
+    // Use native Save As dialog if supported (Chrome/Edge), else fall back to download
+    if (window.showSaveFilePicker) {
+      try {
+        const fileHandle = await window.showSaveFilePicker({
+          suggestedName: filename,
+          types: [{ description: 'PDF File', accept: { 'application/pdf': ['.pdf'] } }],
+        });
+        const writable = await fileHandle.createWritable();
+        await writable.write(pdfBlob);
+        await writable.close();
+      } catch (e) {
+        if (e.name !== 'AbortError') throw e; // user cancelled — do nothing
+      }
+    } else {
+      // Fallback for Firefox / older browsers
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(pdfBlob);
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }
+
+  } catch (err) {
+    alert('PDF generation failed: ' + err.message);
+  } finally {
+    noPrint.forEach(el => { el.style.display = el.dataset.prevDisplay || ''; });
+    btn.disabled = false;
+    btn.textContent = '💾 Save PDF';
+  }
+}
+
+// ── FILE LOADING ──
+function loadFile(file) {
+  const name = file?.name || '';
+  const isCSV  = name.endsWith('.csv');
+  const isExcel = name.endsWith('.xlsx') || name.endsWith('.xls');
+
+  if (!file || (!isCSV && !isExcel)) {
+    alert('Please select a .csv, .xlsx, or .xls file.');
+    return;
+  }
+
+  const reader = new FileReader();
+
+  reader.onload = e => {
+    if (isCSV) {
+      raw = parseCSV(e.target.result);
+    } else {
+      // Parse Excel with SheetJS
+      if (typeof XLSX === 'undefined') { alert('Excel support unavailable — SheetJS library failed to load. Please use a CSV file instead.'); return; }
+      const wb = XLSX.read(e.target.result, { type: 'binary' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const csvText = XLSX.utils.sheet_to_csv(ws);
+      raw = parseCSV(csvText);
+    }
+
+    displayData = [...raw];
+    if (raw.length === 0) { alert('No data rows found. Check the file format.'); return; }
+
+    document.getElementById('uploadScreen').style.display = 'none';
+    document.getElementById('dashboard').style.display = 'block';
+    document.getElementById('printBtn').style.display = '';
+    document.getElementById('fileChip').style.display = '';
+    document.getElementById('fileChip').textContent = `📄 ${file.name}`;
+
+    // Persist to localStorage so refresh restores the dashboard
+    try { localStorage.setItem('dashboardData', JSON.stringify(raw)); localStorage.setItem('dashboardFile', file.name); } catch(e) {}
+
+    // Lock — hide the load button, disable input, block drag-and-drop
+    locked = true;
+    document.getElementById('loadBtn').style.display = 'none';
+    document.getElementById('fileInput').disabled = true;
+    document.getElementById('unlockBtn').style.display = '';
+
+    buildDashboard(file.name);
+  };
+
+  if (isCSV) {
+    reader.readAsText(file);
+  } else {
+    reader.readAsBinaryString(file);
+  }
+}
+
+// File input
+document.getElementById('fileInput').addEventListener('change', e => {
+  if (e.target.files[0]) loadFile(e.target.files[0]);
+});
+
+// ── UNLOCK ──
+function unlockDashboard() {
+  if (!confirm('Load a new file? This will clear the current dashboard.')) return;
+  try { localStorage.removeItem('dashboardData'); localStorage.removeItem('dashboardFile'); } catch(e) {}
+  location.reload();
+}
+
+// ── RESTORE ON REFRESH ──
+(function restoreFromStorage() {
+  let saved, savedFile;
+  try { saved = localStorage.getItem('dashboardData'); savedFile = localStorage.getItem('dashboardFile') || 'Restored Report'; } catch(e) { return; }
+  if (!saved) return;
+  try {
+    raw = JSON.parse(saved);
+    displayData = [...raw];
+    if (raw.length === 0) return;
+
+    document.getElementById('uploadScreen').style.display = 'none';
+    document.getElementById('dashboard').style.display = 'block';
+    document.getElementById('printBtn').style.display = '';
+    document.getElementById('fileChip').style.display = '';
+    document.getElementById('fileChip').textContent = `📄 ${savedFile}`;
+
+    locked = true;
+    document.getElementById('loadBtn').style.display = 'none';
+    document.getElementById('fileInput').disabled = true;
+    document.getElementById('unlockBtn').style.display = '';
+
+    buildDashboard(savedFile);
+  } catch(e) {
+    try { localStorage.removeItem('dashboardData'); localStorage.removeItem('dashboardFile'); } catch(e2) {}
+  }
+})();
+
+// Drag & drop on upload box
+const dropZone = document.getElementById('dropZone');
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('drag-over');
+  loadFile(e.dataTransfer.files[0]);
+});
+
+// Also allow dropping anywhere — but only if not yet locked
+document.body.addEventListener('dragover', e => { if (!locked) e.preventDefault(); });
+document.body.addEventListener('drop', e => {
+  if (locked) return;
+  e.preventDefault();
+  if (e.dataTransfer.files[0]) loadFile(e.dataTransfer.files[0]);
+});
+</script>
+</body>
+</html>
